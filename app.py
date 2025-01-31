@@ -1,4 +1,4 @@
-from flask import Flask, request, Response
+from flask import Flask, request, Response, stream_with_context
 import requests
 import os
 from threading import Lock
@@ -52,6 +52,22 @@ def update_tunnel():
     except Exception as e:
         return {"error": f"Server error: {str(e)}"}, 500
 
+def stream_response(response):
+    """Stream the response in batches of 10 words."""
+    buffer = ""
+    for chunk in response.iter_content(chunk_size=1024):  # Read in chunks
+        buffer += chunk.decode("utf-8")
+        words = buffer.split()
+        
+        while len(words) >= 10:
+            yield " ".join(words[:10]) + "\n"
+            words = words[10:]
+
+        buffer = " ".join(words)  # Keep remaining words in buffer
+
+    if buffer:  # Send remaining words
+        yield buffer + "\n"
+
 @app.route("/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 @app.route("/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 def proxy(path):
@@ -82,18 +98,11 @@ def proxy(path):
             data=data,
             params=request.args,
             cookies=request.cookies,
-            allow_redirects=False  # Prevent unwanted redirects
+            stream=True,  # Enable streaming
+            allow_redirects=False
         )
 
-        # Build the response
-        response = Response(resp.content, status=resp.status_code)
-
-        # Forward headers, excluding certain ones
-        for key, value in resp.headers.items():
-            if key.lower() not in ["content-encoding", "transfer-encoding"]:
-                response.headers[key] = value
-
-        return response
+        return Response(stream_with_context(stream_response(resp)), status=resp.status_code, content_type="text/plain")
 
     except requests.Timeout:
         return {"error": "Request timed out"}, 504
