@@ -8,7 +8,7 @@ import time
 app = Flask(__name__)
 
 # File to store the tunnel URL
-URL_FILE = "/temp/tunnel_url.txt"
+URL_FILE = "/tmp/tunnel_url.txt"
 # Lock for thread-safe file operations
 file_lock = Lock()
 # Flag to indicate URL updates
