@@ -1,8 +1,7 @@
-from flask import Flask, request, Response, stream_with_context, jsonify
+from flask import Flask, request, Response, stream_with_context
 import requests
 import os
 from threading import Lock
-import json
 
 app = Flask(__name__)
 
@@ -22,104 +21,77 @@ def read_tunnel_url():
         print(f"Error reading URL file: {e}")
         return None
 
-def write_tunnel_url(url):
-    """Write the tunnel URL to file."""
-    try:
-        os.makedirs(os.path.dirname(URL_FILE), exist_ok=True)
-        with file_lock:
-            with open(URL_FILE, 'w') as f:
-                f.write(url)
-        return True
-    except Exception as e:
-        print(f"Error writing URL file: {e}")
-        return False
-
 @app.route('/update_tunnel', methods=['POST'])
 def update_tunnel():
     """Update the tunnel URL dynamically."""
     try:
         data = request.get_json()
         if not data or 'tunnel_url' not in data:
-            return jsonify({"error": "Missing 'tunnel_url' in request"}), 400
+            return {"error": "Missing 'tunnel_url' in request"}, 400
 
         tunnel_url = data['tunnel_url'].rstrip('/')
         if not tunnel_url.startswith(('http://', 'https://')):
-            return jsonify({"error": "Invalid URL format"}), 400
+            return {"error": "Invalid URL format"}, 400
 
-        if write_tunnel_url(tunnel_url):
-            return jsonify({"message": "Tunnel URL updated successfully", "tunnel_url": tunnel_url}), 200
-        else:
-            return jsonify({"error": "Failed to save tunnel URL"}), 500
+        with file_lock:
+            os.makedirs(os.path.dirname(URL_FILE), exist_ok=True)
+            with open(URL_FILE, 'w') as f:
+                f.write(tunnel_url)
+
+        return {"message": "Tunnel URL updated successfully", "tunnel_url": tunnel_url}, 200
     except Exception as e:
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
+        return {"error": f"Server error: {str(e)}"}, 500
 
-def extract_and_assemble_response(response):
-    """Extract 'response' fields, arrange them, and return the readable text."""
-    full_response = []
-    
-    for line in response.iter_lines():
-        if line:
+def stream_proxy_response(target_response):
+    """Stream the response from the API in real-time."""
+    for chunk in target_response.iter_lines():
+        if chunk:
             try:
-                data = json.loads(line)
-                if "response" in data:
-                    full_response.append(data["response"])
-                if data.get("done", False):  # Stop collecting when done
-                    break
-            except json.JSONDecodeError:
+                data = chunk.decode('utf-8')
+                yield data + "\n"  # Send each line as received
+            except Exception:
                 continue
-
-    return "".join(full_response).strip()
 
 @app.route("/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 @app.route("/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 def proxy(path):
-    """Forward any request to the dynamically stored tunnel URL and process the response."""
+    """Stream API response in real-time."""
     tunnel_url = read_tunnel_url()
     if not tunnel_url:
-        return jsonify({"error": "Tunnel URL not set"}), 503
+        return {"error": "Tunnel URL not set"}, 503
 
-    # Construct the full URL
     url = f"{tunnel_url}/{path}"
 
-    # Forward headers (excluding 'Host')
     headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
-
-    # Forward cookies
     if request.cookies:
         headers["Cookie"] = "; ".join([f"{key}={value}" for key, value in request.cookies.items()])
 
-    # Forward request body if needed
     data = request.get_data() if request.method in ["POST", "PUT", "PATCH"] else None
 
     try:
-        # Send request to target URL
-        resp = requests.request(
+        with requests.request(
             method=request.method,
             url=url,
             headers=headers,
             data=data,
             params=request.args,
             cookies=request.cookies,
-            stream=True,  # Enable streaming
+            stream=True,  # Enable streaming response
             allow_redirects=False
-        )
-
-        # Extract and return formatted response
-        final_response = extract_and_assemble_response(resp)
-        return jsonify({"response": final_response})
-
+        ) as resp:
+            return Response(stream_with_context(stream_proxy_response(resp)), status=resp.status_code)
     except requests.Timeout:
-        return jsonify({"error": "Request timed out"}), 504
+        return {"error": "Request timed out"}, 504
     except requests.RequestException as e:
-        return jsonify({"error": f"Request failed: {str(e)}"}), 502
+        return {"error": f"Request failed: {str(e)}"}, 502
     except Exception as e:
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
+        return {"error": f"Server error: {str(e)}"}, 500
 
 @app.route('/status', methods=['GET'])
 def get_status():
     """Get the current tunnel URL status."""
     tunnel_url = read_tunnel_url()
-    return jsonify({"current_url": tunnel_url, "is_url_valid": bool(tunnel_url and tunnel_url.startswith('http'))}), 200
+    return {"current_url": tunnel_url, "is_url_valid": bool(tunnel_url and tunnel_url.startswith('http'))}, 200
 
 if __name__ == '__main__':
     os.makedirs(os.path.dirname(URL_FILE), exist_ok=True)
