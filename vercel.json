@@ -12,4 +12,10 @@
   "dest": "/app.py"
    }
  ]
+ {
+  "functions": {
+    "app/api/**/*": {
+      "maxDuration": 30
+  }
+}
 }
