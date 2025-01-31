@@ -7,11 +7,9 @@ import time
 
 app = Flask(__name__)
 
-# File to store the tunnel URL
+# Use /tmp directory for Vercel environment
 URL_FILE = "/tmp/tunnel_url.txt"
-# Lock for thread-safe file operations
 file_lock = Lock()
-# Flag to indicate URL updates
 url_updated = False
 
 def read_tunnel_url():
@@ -21,17 +19,24 @@ def read_tunnel_url():
             if os.path.exists(URL_FILE):
                 with open(URL_FILE, 'r') as f:
                     return f.read().strip()
+            return None
     except Exception as e:
         print(f"Error reading URL file: {e}")
-    return None
+        return None
 
 def write_tunnel_url(url):
     """Write the tunnel URL to file."""
     try:
+        os.makedirs(os.path.dirname(URL_FILE), exist_ok=True)
+        
         with file_lock:
             with open(URL_FILE, 'w') as f:
                 f.write(url)
-        return True
+            if os.path.exists(URL_FILE):
+                with open(URL_FILE, 'r') as f:
+                    if f.read().strip() == url:
+                        return True
+        return False
     except Exception as e:
         print(f"Error writing URL file: {e}")
         return False
@@ -59,17 +64,57 @@ def update_tunnel():
     """Receive the latest tunnel URL from the GitHub Actions script."""
     global url_updated
     
-    data = request.json
-    if 'tunnel_url' in data:
+    try:
+        data = request.get_json()
+        if not data or 'tunnel_url' not in data:
+            return jsonify({"error": "Missing 'tunnel_url' in request"}), 400
+
         tunnel_url = data['tunnel_url'].rstrip('/')
+        
+        if not tunnel_url.startswith(('http://', 'https://')):
+            return jsonify({"error": "Invalid URL format"}), 400
+
         if write_tunnel_url(tunnel_url):
             url_updated = True
+            saved_url = read_tunnel_url()
+            if saved_url == tunnel_url:
+                return jsonify({
+                    "message": "Tunnel URL updated successfully",
+                    "tunnel_url": tunnel_url,
+                    "file_path": URL_FILE
+                }), 200
+            else:
+                return jsonify({
+                    "error": "URL verification failed",
+                    "saved_url": saved_url,
+                    "intended_url": tunnel_url
+                }), 500
+        else:
+            file_exists = os.path.exists(URL_FILE)
+            file_perms = ""
+            dir_perms = ""
+            try:
+                if file_exists:
+                    file_perms = oct(os.stat(URL_FILE).st_mode)[-3:]
+                dir_perms = oct(os.stat(os.path.dirname(URL_FILE)).st_mode)[-3:]
+            except Exception as e:
+                print(f"Error checking permissions: {e}")
+
             return jsonify({
-                "message": "Tunnel URL updated",
-                "tunnel_url": tunnel_url
-            }), 200
-        return jsonify({"error": "Failed to save tunnel URL"}), 500
-    return jsonify({"error": "Missing 'tunnel_url' in request"}), 400
+                "error": "Failed to save tunnel URL",
+                "details": {
+                    "file_exists": file_exists,
+                    "file_path": URL_FILE,
+                    "file_permissions": file_perms,
+                    "directory_permissions": dir_perms
+                }
+            }), 500
+
+    except Exception as e:
+        return jsonify({
+            "error": "Server error while updating tunnel URL",
+            "details": str(e)
+        }), 500
 
 @app.route('/proxy/', defaults={'endpoint': ''}, methods=['GET', 'POST'])
 @app.route('/proxy/<path:endpoint>', methods=['GET', 'POST'])
@@ -77,33 +122,27 @@ def proxy_request(endpoint):
     """Forward GET or POST requests to the latest tunnel URL."""
     global url_updated
     
-    # Read and validate tunnel URL
     tunnel_url = read_tunnel_url()
     if not tunnel_url:
         return jsonify({"error": "Tunnel URL not set"}), 503
 
-    # Handle URL update flag
     if url_updated:
         url_updated = False
         print(f"Using new tunnel URL: {tunnel_url}")
 
-    # Build target URL
     full_url = tunnel_url.rstrip('/') + '/' + endpoint.lstrip('/')
     if not endpoint:
         full_url = full_url.rstrip('/')
 
     try:
-        # Process request headers
         headers = {
             key: value for key, value in request.headers.items()
             if key.lower() not in ['host', 'content-length']
         }
         
-        # Ensure proper content type for JSON
         if request.is_json:
             headers['Content-Type'] = 'application/json'
 
-        # Handle POST request with validation
         if request.method == 'POST':
             try:
                 request_data = request.get_json()
@@ -118,7 +157,6 @@ def proxy_request(endpoint):
                 print(f"Sending POST request to {full_url}")
                 print(f"Request data: {json.dumps(request_data)}")
                 
-                # Add retry logic
                 max_retries = 3
                 for attempt in range(max_retries):
                     try:
@@ -130,9 +168,8 @@ def proxy_request(endpoint):
                         )
                         
                         print(f"Response status: {response.status_code}")
-                        print(f"Response text: {response.text[:200]}...")  # Log first 200 chars
+                        print(f"Response text: {response.text[:200]}...")
                         
-                        # Check if response is valid JSON
                         try:
                             response_data = response.json()
                             return jsonify(response_data), response.status_code
@@ -147,7 +184,7 @@ def proxy_request(endpoint):
                         if attempt == max_retries - 1:
                             raise
                         print(f"Retry {attempt + 1}/{max_retries} after error: {str(e)}")
-                        time.sleep(1)  # Wait before retry
+                        time.sleep(1)
                         
             except json.JSONDecodeError:
                 return jsonify({
@@ -155,7 +192,6 @@ def proxy_request(endpoint):
                     "status": "json_error"
                 }), 400
 
-        # Handle GET request
         else:
             response = requests.get(
                 full_url,
@@ -198,7 +234,13 @@ def get_status():
     }), 200
 
 if __name__ == '__main__':
+    os.makedirs(os.path.dirname(URL_FILE), exist_ok=True)
+    
     if not os.path.exists(URL_FILE):
-        write_tunnel_url("")
+        try:
+            with open(URL_FILE, 'w') as f:
+                f.write("")
+        except Exception as e:
+            print(f"Error creating URL file: {e}")
     
     app.run(host='0.0.0.0', port=5000, debug=True)
