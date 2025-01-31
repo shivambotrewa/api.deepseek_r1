@@ -1,7 +1,8 @@
-from flask import Flask, request, Response, stream_with_context
+from flask import Flask, request, Response, stream_with_context, jsonify
 import requests
 import os
 from threading import Lock
+import json
 
 app = Flask(__name__)
 
@@ -39,42 +40,43 @@ def update_tunnel():
     try:
         data = request.get_json()
         if not data or 'tunnel_url' not in data:
-            return {"error": "Missing 'tunnel_url' in request"}, 400
+            return jsonify({"error": "Missing 'tunnel_url' in request"}), 400
 
         tunnel_url = data['tunnel_url'].rstrip('/')
         if not tunnel_url.startswith(('http://', 'https://')):
-            return {"error": "Invalid URL format"}, 400
+            return jsonify({"error": "Invalid URL format"}), 400
 
         if write_tunnel_url(tunnel_url):
-            return {"message": "Tunnel URL updated successfully", "tunnel_url": tunnel_url}, 200
+            return jsonify({"message": "Tunnel URL updated successfully", "tunnel_url": tunnel_url}), 200
         else:
-            return {"error": "Failed to save tunnel URL"}, 500
+            return jsonify({"error": "Failed to save tunnel URL"}), 500
     except Exception as e:
-        return {"error": f"Server error: {str(e)}"}, 500
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
-def stream_response(response):
-    """Stream the response in batches of 10 words."""
-    buffer = ""
-    for chunk in response.iter_content(chunk_size=1024):  # Read in chunks
-        buffer += chunk.decode("utf-8")
-        words = buffer.split()
-        
-        while len(words) >= 10:
-            yield " ".join(words[:10]) + "\n"
-            words = words[10:]
+def extract_and_assemble_response(response):
+    """Extract 'response' fields, arrange them, and return the readable text."""
+    full_response = []
+    
+    for line in response.iter_lines():
+        if line:
+            try:
+                data = json.loads(line)
+                if "response" in data:
+                    full_response.append(data["response"])
+                if data.get("done", False):  # Stop collecting when done
+                    break
+            except json.JSONDecodeError:
+                continue
 
-        buffer = " ".join(words)  # Keep remaining words in buffer
-
-    if buffer:  # Send remaining words
-        yield buffer + "\n"
+    return "".join(full_response).strip()
 
 @app.route("/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 @app.route("/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 def proxy(path):
-    """Forward any request to the dynamically stored tunnel URL."""
+    """Forward any request to the dynamically stored tunnel URL and process the response."""
     tunnel_url = read_tunnel_url()
     if not tunnel_url:
-        return {"error": "Tunnel URL not set"}, 503
+        return jsonify({"error": "Tunnel URL not set"}), 503
 
     # Construct the full URL
     url = f"{tunnel_url}/{path}"
@@ -102,20 +104,22 @@ def proxy(path):
             allow_redirects=False
         )
 
-        return Response(stream_with_context(stream_response(resp)), status=resp.status_code, content_type="text/plain")
+        # Extract and return formatted response
+        final_response = extract_and_assemble_response(resp)
+        return jsonify({"response": final_response})
 
     except requests.Timeout:
-        return {"error": "Request timed out"}, 504
+        return jsonify({"error": "Request timed out"}), 504
     except requests.RequestException as e:
-        return {"error": f"Request failed: {str(e)}"}, 502
+        return jsonify({"error": f"Request failed: {str(e)}"}), 502
     except Exception as e:
-        return {"error": f"Server error: {str(e)}"}, 500
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 @app.route('/status', methods=['GET'])
 def get_status():
     """Get the current tunnel URL status."""
     tunnel_url = read_tunnel_url()
-    return {"current_url": tunnel_url, "is_url_valid": bool(tunnel_url and tunnel_url.startswith('http'))}, 200
+    return jsonify({"current_url": tunnel_url, "is_url_valid": bool(tunnel_url and tunnel_url.startswith('http'))}), 200
 
 if __name__ == '__main__':
     os.makedirs(os.path.dirname(URL_FILE), exist_ok=True)
