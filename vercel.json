@@ -5,7 +5,7 @@
   "src": "./app.py",
   "use": "@vercel/python",
      "functions": {
-    "api/test.js": {
+    "*.py": {
       "memory": 3009,
       "maxDuration": 30
     }
