@@ -9,26 +9,33 @@ app = Flask(__name__)
 # File to store the latest tunnel URL
 URL_FILE = "/tmp/tunnel_url.txt"
 file_lock = Lock()
+current_url = None  # In-memory cache of the URL
 
 def read_tunnel_url():
-    """Read the latest tunnel URL from file."""
+    """Read the latest tunnel URL from file and cache it."""
+    global current_url
     try:
         with file_lock:
+            if current_url:  # Return cached URL if available
+                return current_url
             if os.path.exists(URL_FILE):
                 with open(URL_FILE, 'r') as f:
-                    return f.read().strip()
+                    current_url = f.read().strip()
+                return current_url
             return None
     except Exception as e:
         print(f"Error reading URL file: {e}")
-        return None
+        return current_url  # Return cached URL even if file read fails
 
 def write_tunnel_url(url):
-    """Write the tunnel URL to file."""
+    """Write the tunnel URL to file and update cache."""
+    global current_url
     try:
         os.makedirs(os.path.dirname(URL_FILE), exist_ok=True)
         with file_lock:
             with open(URL_FILE, 'w') as f:
                 f.write(url)
+            current_url = url  # Update the cache
         return True
     except Exception as e:
         print(f"Error writing URL file: {e}")
@@ -119,8 +126,14 @@ def proxy(path):
 def get_status():
     """Get the current tunnel URL status."""
     tunnel_url = read_tunnel_url()
-    return jsonify({"current_url": tunnel_url, "is_url_valid": bool(tunnel_url and tunnel_url.startswith('http'))}), 200
+    return jsonify({
+        "current_url": tunnel_url,
+        "is_url_valid": bool(tunnel_url and tunnel_url.startswith('http')),
+        "cached": bool(current_url)
+    }), 200
 
 if __name__ == '__main__':
+    # Initialize by reading the existing URL file if it exists
+    read_tunnel_url()
     os.makedirs(os.path.dirname(URL_FILE), exist_ok=True)
     app.run(host='0.0.0.0', port=5000, debug=True)
