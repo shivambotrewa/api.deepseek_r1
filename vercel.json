@@ -1,27 +1,22 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "./app.py",
-      "use": "@vercel/python"
-    }
-  ],
-  
-  "functions": {
-    "app.py": {
+ "version": 2,
+ "builds": [
+   {
+  "src": "./app.py",
+  "use": "@vercel/python",
+     "functions": {
+    "api/test.js": {
       "memory": 3009,
-      "maxDuration": 58
-    },
-    "*.py": {
-      "memory": 3009,
-      "maxDuration": 58
+      "maxDuration": 30
     }
-  },
-
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/app.py"
-    }
-  ]
+     }
+   }
+ ],
+ "routes": [
+   {
+  "src": "/(.*)",
+  "dest": "/app.py"
+   }
+ ]
 }
+  
