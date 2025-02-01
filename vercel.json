@@ -6,11 +6,18 @@
       "use": "@vercel/python"
     }
   ],
+  
   "functions": {
     "app.py": {
-      "maxDuration": 60
+      "memory": 3009,
+      "maxDuration": 58
+    },
+    "*.py": {
+      "memory": 3009,
+      "maxDuration": 58
     }
-  },
+  }
+
   "routes": [
     {
       "src": "/(.*)",
