@@ -12,7 +12,7 @@
       "memory": 3009,
       "maxDuration": 58
     },
-    "*.py": {
+    "app.py": {
       "memory": 3009,
       "maxDuration": 58
     }
