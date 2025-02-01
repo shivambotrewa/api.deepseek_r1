@@ -19,7 +19,7 @@ jobs:
           node-version: '20' 
  
       - name: Install dependencies 
-        run: sudo apt update && sudo apt install -y wget curl openssh-client 
+        run: sudo apt update && sudo apt install -y wget curl openssh-client jq
  
       - name: Install Ollama 
         run: | 
@@ -65,46 +65,56 @@ jobs:
             
             if [ ! -z "$TUNNEL_URL" ]; then
               echo "Tunnel URL found: $TUNNEL_URL"
-              # Send the URL to your webserver (replace YOUR_WEBSERVER_URL with actual URL)
-              curl -X POST -H "Content-Type: application/json" \
-                -d "{\"tunnel_url\": \"$TUNNEL_URL\"}" \
-                https://apideepseek-r1.vercel.app/update_tunnel
-                
-              curl -X POST -H "Content-Type: application/json" \
-                -d "{\"tunnel_url\": \"$TUNNEL_URL\"}" \
-                https://apideepseek-r1.vercel.app/update_tunnel
-                
+              # Send the URL to your webserver
               curl -X POST -H "Content-Type: application/json" \
                 -d "{\"tunnel_url\": \"$TUNNEL_URL\"}" \
                 https://apideepseek-r1.vercel.app/update_tunnel
               
-              echo "URL sent to webserver successfully!"
+              # Verify if the posted URL matches
+              MAX_RETRIES=5
+              RETRY_COUNT=0
+              MATCH_FOUND=false
+              
+              while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$MATCH_FOUND" = false ]; do
+                sleep 10  # Wait before checking
+                API_RESPONSE=$(curl -s https://apideepseek-r1.vercel.app/status)
+                POSTED_URL=$(echo "$API_RESPONSE" | jq -r '.current_url')
+                IS_URL_VALID=$(echo "$API_RESPONSE" | jq -r '.is_url_valid')
+                
+                echo "Checking posted URL: $POSTED_URL"
+                echo "URL validity: $IS_URL_VALID"
+                echo "Against tunnel URL: $TUNNEL_URL"
+                
+                if [ "$POSTED_URL" = "$TUNNEL_URL" ] && [ "$IS_URL_VALID" = "true" ]; then
+                  echo "URL verification successful! URLs match and URL is valid."
+                  MATCH_FOUND=true
+                else
+                  echo "URLs don't match or URL is not valid. Retrying POST request..."
+                  curl -X POST -H "Content-Type: application/json" \
+                    -d "{\"tunnel_url\": \"$TUNNEL_URL\"}" \
+                    https://apideepseek-r1.vercel.app/update_tunnel
+                  RETRY_COUNT=$((RETRY_COUNT + 1))
+                fi
+              done
+              
+              if [ "$MATCH_FOUND" = false ]; then
+                echo "Failed to verify URL match after $MAX_RETRIES attempts"
+                return 1
+              fi
             else
               echo "Failed to extract tunnel URL"
+              return 1
             fi
             
-            echo "SSH tunnel started successfully!"
+            echo "SSH tunnel started and verified successfully!"
           }
 
-          # Main loop
-          end_time=$((SECONDS + 20700))  # 5 hours and 45 minutes in seconds
-          interval=$((60 * 60))  # 60 minutes in seconds
-          
-          while [ $SECONDS -lt $end_time ]; do
-            # Kill existing SSH tunnel
-            pkill -f "ssh -p 443 -R0:localhost:11434" || true
-            
-            # Start new SSH tunnel and post URL
+          # Start tunnel and retry if it fails
+          while true; do
             start_new_tunnel
-            
-            # Sleep for the interval (60 minutes) or until we reach the end time
-            remaining_time=$((end_time - SECONDS))
-            sleep_time=$((interval < remaining_time ? interval : remaining_time))
-            sleep $sleep_time
+            if [ $? -eq 0 ]; then
+              break
+            fi
+            echo "Tunnel setup failed, retrying in 30 seconds..."
+            sleep 30
           done
-
-      - name: Verify Tunnel 
-        run: | 
-          echo "Checking tunnel status..." 
-          curl -I https://a.pinggy.io || echo "Tunnel might not be active!" 
-          curl https://ipv4.icanhazip.com/
