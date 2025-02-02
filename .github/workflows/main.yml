@@ -72,7 +72,7 @@ jobs:
               # Send the URL to your webserver
               curl -X POST -H "Content-Type: application/json" \
                 -d "{\"tunnel_url\": \"$TUNNEL_URL\"}" \
-                https://apideepseek-r1.vercel.app/update_tunnel
+                https://api-deepseek-r1-s9lg.vercel.app/update_tunnel
               
               # Verify if the posted URL matches
               MAX_RETRIES=5
@@ -81,7 +81,7 @@ jobs:
               
               while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$MATCH_FOUND" = false ]; do
                 sleep 10  # Wait before checking
-                API_RESPONSE=$(curl -s https://apideepseek-r1.vercel.app/status)
+                API_RESPONSE=$(curl -s https://api-deepseek-r1-s9lg.vercel.app/status)
                 POSTED_URL=$(echo "$API_RESPONSE" | jq -r '.current_url')
                 IS_URL_VALID=$(echo "$API_RESPONSE" | jq -r '.is_url_valid')
                 
@@ -96,7 +96,7 @@ jobs:
                   echo "URLs don't match or URL is not valid. Retrying POST request..."
                   curl -X POST -H "Content-Type: application/json" \
                     -d "{\"tunnel_url\": \"$TUNNEL_URL\"}" \
-                    https://apideepseek-r1.vercel.app/update_tunnel
+                    https://api-deepseek-r1-s9lg.vercel.app/update_tunnel
                   RETRY_COUNT=$((RETRY_COUNT + 1))
                 fi
               done
