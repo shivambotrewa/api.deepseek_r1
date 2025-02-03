@@ -71,8 +71,8 @@ jobs:
               echo "Tunnel URL found: $TUNNEL_URL"
               # Send the URL to your webserver
               curl -X POST -H "Content-Type: application/json" \
-                -d "{\"tunnel_url\": \"$TUNNEL_URL\"}" \
-                https://apideepseekr1-7b.vercel.app/update_tunnel
+                -d "{\"url\": \"$TUNNEL_URL\"}" \
+                http://alizarinkingfisher.onpella.app/set_url
 
               sleep 10
               # Verify if the posted URL matches
@@ -82,22 +82,22 @@ jobs:
               
               while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$MATCH_FOUND" = false ]; do
                 sleep 10  # Wait before checking
-                API_RESPONSE=$(curl -s https://apideepseekr1-7b.vercel.app/status)
-                POSTED_URL=$(echo "$API_RESPONSE" | jq -r '.current_url')
-                IS_URL_VALID=$(echo "$API_RESPONSE" | jq -r '.is_url_valid')
+                API_RESPONSE=$(curl -s http://alizarinkingfisher.onpella.app/status)
+                POSTED_URL=$(echo "$API_RESPONSE" | jq -r '.current_target_url')
+                # IS_URL_VALID=$(echo "$API_RESPONSE" | jq -r '.is_url_valid')
                 
                 echo "Checking posted URL: $POSTED_URL"
-                echo "URL validity: $IS_URL_VALID"
+                # echo "URL validity: $IS_URL_VALID"
                 echo "Against tunnel URL: $TUNNEL_URL"
                 
-                if [ "$POSTED_URL" = "$TUNNEL_URL" ] && [ "$IS_URL_VALID" = "true" ]; then
+                if [ "$POSTED_URL" = "$TUNNEL_URL" ] ; then
                   echo "URL verification successful! URLs match and URL is valid."
                   MATCH_FOUND=true
                 else
                   echo "URLs don't match or URL is not valid. Retrying POST request..."
                   curl -X POST -H "Content-Type: application/json" \
-                    -d "{\"tunnel_url\": \"$TUNNEL_URL\"}" \
-                    https://apideepseekr1-7b.vercel.app/update_tunnel
+                    -d "{\"url\": \"$TUNNEL_URL\"}" \
+                    http://alizarinkingfisher.onpella.app/set_url
                   RETRY_COUNT=$((RETRY_COUNT + 1))
                 fi
               done
