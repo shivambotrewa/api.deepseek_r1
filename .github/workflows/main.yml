@@ -73,7 +73,8 @@ jobs:
               curl -X POST -H "Content-Type: application/json" \
                 -d "{\"tunnel_url\": \"$TUNNEL_URL\"}" \
                 https://apideepseekr1-7b.vercel.app/update_tunnel
-              
+
+              sleep 10
               # Verify if the posted URL matches
               MAX_RETRIES=5
               RETRY_COUNT=0
