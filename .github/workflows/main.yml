@@ -19,8 +19,10 @@ jobs:
         with: 
           node-version: '20' 
  
-      - name: Install dependencies 
-        run: sudo apt update && sudo apt install -y wget curl openssh-client jq
+      - name: Install dependencies
+        run: |
+          sudo apt update && sudo apt install -y wget curl jq
+          npm install -g localtunnel
  
       - name: Install Ollama 
         run: | 
@@ -47,25 +49,16 @@ jobs:
           ollama pull deepseek-r1 & 
           sleep 10 
  
-      - name: Keep Alive with Periodic SSH Tunnel Refresh
+      - name: Keep Alive with Periodic Localtunnel Refresh
         run: |
           # Define the function within the same shell scope
           start_new_tunnel() {
-            echo "Setting up SSH configuration..."
-            mkdir -p ~/.ssh
-            echo -e "Host a.pinggy.io\n\tStrictHostKeyChecking no\n\tUserKnownHostsFile=/dev/null\n" >> ~/.ssh/config
+            echo "Starting localtunnel..."
+            # Kill any existing lt processes
+            pkill -f "lt --port 11434" || true
             
-            echo "Starting SSH tunnel..."
-            # Kill any existing SSH processes
-            pkill -f "ssh -p 443 -R0:localhost:11434" || true
-            
-            # Capture the SSH output to a file
-            ssh -p 443 -R0:localhost:11434 qr@a.pinggy.io "u:Host:localhost:11434" > tunnel_output.txt 2>&1 &
-            
-            sleep 10
-            
-            # Extract the HTTPS URL from the output
-            TUNNEL_URL=$(grep "https://" tunnel_output.txt | tail -n 1)
+            # Start new tunnel and capture the URL
+            TUNNEL_URL=$(lt --port 11434 --print-url)
             
             if [ ! -z "$TUNNEL_URL" ]; then
               echo "Tunnel URL found: $TUNNEL_URL"
@@ -84,17 +77,15 @@ jobs:
                 sleep 10  # Wait before checking
                 API_RESPONSE=$(curl -s http://alizarinkingfisher.onpella.app/status)
                 POSTED_URL=$(echo "$API_RESPONSE" | jq -r '.current_target_url')
-                # IS_URL_VALID=$(echo "$API_RESPONSE" | jq -r '.is_url_valid')
                 
                 echo "Checking posted URL: $POSTED_URL"
-                # echo "URL validity: $IS_URL_VALID"
                 echo "Against tunnel URL: $TUNNEL_URL"
                 
-                if [ "$POSTED_URL" = "$TUNNEL_URL" ] ; then
-                  echo "URL verification successful! URLs match and URL is valid."
+                if [ "$POSTED_URL" = "$TUNNEL_URL" ]; then
+                  echo "URL verification successful! URLs match."
                   MATCH_FOUND=true
                 else
-                  echo "URLs don't match or URL is not valid. Retrying POST request..."
+                  echo "URLs don't match. Retrying POST request..."
                   curl -X POST -H "Content-Type: application/json" \
                     -d "{\"url\": \"$TUNNEL_URL\"}" \
                     http://alizarinkingfisher.onpella.app/set_url
@@ -107,11 +98,11 @@ jobs:
                 return 1
               fi
             else
-              echo "Failed to extract tunnel URL"
+              echo "Failed to create tunnel"
               return 1
             fi
             
-            echo "SSH tunnel started and verified successfully!"
+            echo "Localtunnel started and verified successfully!"
           }
 
           # Calculate end time (5 hours from now to allow for cleanup)
@@ -145,5 +136,5 @@ jobs:
           done
 
           echo "Reached maximum runtime, shutting down..."
-          pkill -f "ssh -p 443 -R0:localhost:11434" || true
+          pkill -f "lt --port 11434" || true
           pkill -x "ollama" || true
