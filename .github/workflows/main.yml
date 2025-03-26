@@ -11,6 +11,14 @@ jobs:
         shell: bash
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
+          
+      - name: Kill Any Existing Ollama Process 
+        run: | 
+          if pgrep -x "ollama" > /dev/null; then 
+            echo "Ollama is already running. Stopping it..." 
+            sudo pkill -9 ollama || true  # Force kill if needed, ignore errors 
+            sleep 5 
+          fi 
 
       - name: Start Ollama server
         shell: bash
