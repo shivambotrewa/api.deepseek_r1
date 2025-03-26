@@ -39,7 +39,7 @@ jobs:
       - name: Start Localtunnel
         shell: bash
         run: |
-          lt --port 11434 > tunnel_url.txt 2>&1 &
+          lt --local-host localhost --port 11434 > tunnel_url.txt 2>&1 &
           sleep 5  # Wait for tunnel to establish
 
       - name: Display Localtunnel URL
