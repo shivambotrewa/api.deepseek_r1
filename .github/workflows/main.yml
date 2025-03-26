@@ -7,22 +7,36 @@ jobs:
   run-ollama:
     runs-on: windows-latest
     steps:
-      - name: Install Ollama in WSL
+      - name: Ensure WSL 2 is available
         shell: powershell
         run: |
-          wsl bash -c "curl -fsSL https://ollama.com/install.sh | sh"
+          wsl --install -d Ubuntu-20.04 --no-launch
+          wsl --set-default-version 2
+          wsl --set-default Ubuntu-20.04
 
-      - name: Start Ollama server in WSL
+      - name: Install Ollama in WSL 2 (Ubuntu)
         shell: powershell
         run: |
-          wsl bash -c "ollama serve &"
+          wsl -d Ubuntu-20.04 bash -c "curl -fsSL https://ollama.com/install.sh | sh"
+
+      - name: Start Ollama server in WSL 2
+        shell: powershell
+        run: |
+          wsl -d Ubuntu-20.04 bash -c "ollama serve &"
           Start-Sleep -Seconds 10  # Wait for server to start
 
-      - name: Get WSL IP
+      - name: Get WSL 2 IP
         shell: powershell
         run: |
-          $WSL_IP = wsl hostname -I | ForEach-Object { $_.Split()[0] }
+          $WSL_IP = wsl -d Ubuntu-20.04 hostname -I | ForEach-Object { $_.Split()[0] }
           echo "WSL_IP=$WSL_IP" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure Windows Firewall for Ollama
+        shell: powershell
+        run: |
+          New-NetFireWallRule -DisplayName "Ollama WSL 2" -Direction Inbound -LocalPort 11434 -Action Allow -Protocol TCP
+          New-NetFireWallRule -DisplayName "Ollama WSL 2" -Direction Outbound -LocalPort 11434 -Action Allow -Protocol TCP
+          netsh interface portproxy add v4tov4 listenport=11434 listenaddress=0.0.0.0 connectport=11434 connectaddress=${env:WSL_IP}
 
       - name: Install Node.js (required for Localtunnel)
         uses: actions/setup-node@v3
@@ -33,21 +47,19 @@ jobs:
         shell: powershell
         run: |
           npm install -g localtunnel
+          curl https://loca.lt/mytunnelpassword
 
       - name: Start Localtunnel
         shell: powershell
         run: |
           Start-Process -NoNewWindow -FilePath "npx" -ArgumentList "localtunnel --port 11434 --host ${env:WSL_IP}"
           Start-Sleep -Seconds 5  # Wait for tunnel to establish
-          curl https://loca.lt/mytunnelpassword
 
       - name: Display Localtunnel URL
         shell: powershell
         run: |
-          # Localtunnel outputs the URL to stdout; simulate fetching it
-          # In practice, you'd need to capture the output, here we assume a manual check
           echo "Check the logs for the Localtunnel URL (e.g., https://<random-subdomain>.loca.lt)"
-          echo "Ollama is tunneled via Localtunnel on port 11434"
+          echo "Ollama is tunneled via Localtunnel on port 11434 from WSL 2 IP: ${env:WSL_IP}"
 
       - name: Keep workflow running for 5 hours
         shell: powershell
