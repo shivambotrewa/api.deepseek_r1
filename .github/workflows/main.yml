@@ -23,7 +23,7 @@ jobs:
       - name: Start Ollama server
         shell: bash
         run: |
-          ollama serve &
+          nohup ollama serve &
           sleep 10  # Wait for server to start
 
       - name: Get Local IP (optional for logs)
@@ -47,7 +47,7 @@ jobs:
       - name: Start Localtunnel
         shell: bash
         run: |
-          lt --local-host localhost --port 11434 > tunnel_url.txt 2>&1 &
+          lt --local-host 127.0.0.1 --port 11434 > tunnel_url.txt 2>&1 &
           sleep 5  # Wait for tunnel to establish
 
       - name: Display Localtunnel URL
