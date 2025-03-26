@@ -11,29 +11,20 @@ jobs:
         shell: bash
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
-          
-      - name: Kill Any Existing Ollama Process 
-        run: | 
-          if pgrep -x "ollama" > /dev/null; then 
-            echo "Ollama is already running. Stopping it..." 
-            sudo pkill -9 ollama || true  # Force kill if needed, ignore errors 
-            sleep 5 
-          fi 
 
       - name: Start Ollama server
         shell: bash
         run: |
-          nohup ollama serve &
-          sleep 10  # Wait for server to start
+          export OLLAMA_HOST=0.0.0.0:11434
+          ollama serve &
+          sleep 10
 
-      - name: Get Local IP (optional for logs)
+      - name: Verify Ollama is Running
         shell: bash
         run: |
-          LOCAL_IP=$(hostname -I | awk '{print $1}')
-          echo "LOCAL_IP=$LOCAL_IP" >> $GITHUB_ENV
-          echo "Ollama is running locally at $LOCAL_IP:11434"
+          curl http://127.0.0.1:11434 || echo "Ollama not reachable locally"
 
-      - name: Install Node.js (required for Localtunnel)
+      - name: Install Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '16'
@@ -47,15 +38,16 @@ jobs:
       - name: Start Localtunnel
         shell: bash
         run: |
-          lt --local-host 127.0.0.1 --port 11434 > tunnel_url.txt 2>&1 &
-          sleep 5  # Wait for tunnel to establish
+          lt --port 11434 > tunnel_url.txt 2>&1 &
+          sleep 5
 
-      - name: Display Localtunnel URL
+      - name: Display and Test Localtunnel URL
         shell: bash
         run: |
           TUNNEL_URL=$(cat tunnel_url.txt | grep -o 'https://[^ ]*.loca.lt')
           echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
           echo "Ollama is accessible at $TUNNEL_URL"
+          curl -H "x-requested-with: XMLHttpRequest" "$TUNNEL_URL" || echo "403 encountered; try bypassing warning page"
 
       - name: Keep workflow running for 5 hours
         shell: bash
