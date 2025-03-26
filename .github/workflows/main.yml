@@ -1,30 +1,49 @@
-name: Run Ollama with Localtunnel on Linux
+name: Run llama.cpp with Localtunnel on Linux
 
 on:
   workflow_dispatch:
 
 jobs:
-  run-ollama:
+  run-llama-cpp:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Ollama on Linux
+      - name: Checkout llama.cpp repository
+        uses: actions/checkout@v3
+        with:
+          repository: ggerganov/llama.cpp
+          ref: master
+
+      - name: Install build dependencies
         shell: bash
         run: |
-          curl -fsSL https://ollama.com/install.sh | sh
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake git
 
-      - name: Start Ollama server
+      - name: Build llama.cpp
         shell: bash
         run: |
-          export OLLAMA_HOST=0.0.0.0:11434
-          ollama serve &
-          sleep 10
+          mkdir build
+          cd build
+          cmake ..
+          make -j$(nproc)
 
-      - name: Verify Ollama is Running
+      - name: Download a sample model (e.g., LLaMA 3.2 3B GGUF)
         shell: bash
         run: |
-          curl http://127.0.0.1:11434 || echo "Ollama not reachable locally"
+          wget -O model.gguf https://huggingface.co/TheBloke/Llama-3.2-3B-Instruct-GGUF/resolve/main/llama-3.2-3b-instruct-q4_0.gguf
 
-      - name: Install Node.js
+      - name: Start llama.cpp server
+        shell: bash
+        run: |
+          ./build/bin/llama-server -m model.gguf --host 0.0.0.0 --port 8080 &
+          sleep 10  # Wait for server to start
+
+      - name: Verify llama.cpp server is running
+        shell: bash
+        run: |
+          curl http://127.0.0.1:8080/v1/health || echo "llama.cpp server not reachable locally"
+
+      - name: Install Node.js (required for Localtunnel)
         uses: actions/setup-node@v3
         with:
           node-version: '16'
@@ -38,16 +57,16 @@ jobs:
       - name: Start Localtunnel
         shell: bash
         run: |
-          lt --port 11434 > tunnel_url.txt 2>&1 &
-          sleep 5
+          lt --port 8080 > tunnel_url.txt 2>&1 &
+          sleep 5  # Wait for tunnel to establish
 
       - name: Display and Test Localtunnel URL
         shell: bash
         run: |
           TUNNEL_URL=$(cat tunnel_url.txt | grep -o 'https://[^ ]*.loca.lt')
           echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
-          echo "Ollama is accessible at $TUNNEL_URL"
-          curl -H "x-requested-with: XMLHttpRequest" "$TUNNEL_URL" || echo "403 encountered; try bypassing warning page"
+          echo "llama.cpp API is accessible at $TUNNEL_URL"
+          curl -H "x-requested-with: XMLHttpRequest" "$TUNNEL_URL/v1/health" || echo "403 encountered; try bypassing warning page"
 
       - name: Keep workflow running for 5 hours
         shell: bash
